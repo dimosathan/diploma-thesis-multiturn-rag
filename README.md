@@ -12,7 +12,7 @@ The thesis builds on the system paper *AILS-NTUA at SemEval-2026 Task 8: Query D
 | B: Generation (reference passages) | Harmonic Mean | 0.7698 | 2 / 26 |
 | C: End-to-end RAG | Harmonic Mean | 0.5409 | 11 / 29 |
 
-The compiled thesis is in [`Diploma_Thesis_D_Athanasiou.pdf`](Diploma_Thesis_D_Athanasiou.pdf).
+The compiled thesis is in [`Diploma_Thesis_D_Athanasiou.pdf`](Diploma_Thesis_D_Athanasiou.pdf). The system paper and its citation are in [`paper/`](paper/), and the system code is in a separate repository: [dimosathan/multiturn-RAG](https://github.com/dimosathan/multiturn-RAG).
 
 ## Repository structure
 
@@ -32,6 +32,7 @@ chapters/
   conclusion/             Chapter 7
   bibliography/
 figures/, images/         figures and the NTUA logo (EPS)
+paper/                    the SemEval-2026 system paper and its BibTeX entry
 ```
 
 ## Building
