@@ -1,0 +1,45 @@
+\chapter*{Abstract}
+
+Retrieval-Augmented Generation (RAG) has emerged as a foundational paradigm for
+grounding Large Language Model (LLM) responses in external, verifiable knowledge
+sources. While considerable progress has been made in single-turn RAG settings, the
+multi-turn conversational scenario — where a system must generate accurate, faithful
+responses across an extended dialogue — remains significantly more challenging and
+comparatively understudied. In multi-turn interactions, retrieval quality degrades across
+turns due to non-standalone queries, pronoun coreferences, and implicit topic carryover,
+while generation quality is further compromised by error accumulation, unanswerable
+questions, and the growing complexity of conversational context.
+ 
+This thesis presents a unified, stability-oriented architecture for multi-turn RAG,
+developed and evaluated on the MTRAG benchmark as part of the SemEval-2026 Task 8
+shared task. The system addresses all three subtasks: passage retrieval (Task A),
+reference-grounded response generation (Task B), and end-to-end RAG (Task C). The
+central design principle is retrieval stability through query diversity: rather than relying
+on heterogeneous retriever ensembles, we issue five complementary LLM-based query
+reformulations — Minimal, Corpus-Specific, Hypothetical Document Embedding (HyDE),
+Chain-of-Thought (CoT), and Anchor-Keyword — to a single corpus-aligned sparse
+retriever (ELSER v1), and aggregate the resulting ranked lists via a hierarchical
+Nested Reciprocal Rank Fusion (RRF) scheme.
+ 
+For response generation, we adopt an agentic, multi-stage pipeline that decomposes
+grounded generation into five sequential stages: answerability triage, evidence
+span extraction, dual-candidate drafting, judge-based selection, and a final micro-adjustment pass. A 4-gram
+extractiveness shaping function enforces a faithfulness-naturalness trade-off, penalizing
+both hallucination-prone under-extractive responses and robotic over-extractive ones.
+The end-to-end RAG pipeline further incorporates a multi-judge answerability gate with
+confidence-weighted voting to handle the critical challenge of unanswerable turns.
+ 
+Ablation studies on the development set indicate that: (i) query diversity over a single
+corpus-aligned retriever outperforms heterogeneous retriever ensembling under the
+benchmark's official relevance judgments; (ii) evidence extraction before generation
+improves faithfulness; (iii) answerability calibration becomes the decisive factor in end-to-end performance
+when the share of unanswerable requests rises, while top-rank retrieval errors remain a
+substantial second source of failure. Our system ranked 1st in Task A (nDCG@5: 0.5776, +20.5\% over the
+strongest baseline), 2nd in Task B (Harmonic Mean: 0.7698), and 11th in Task C
+(Harmonic Mean: 0.5409) on the official SemEval-2026 leaderboard, among 38, 26, and 29
+participating systems respectively.
+ 
+\paragraph*{Keywords ---}
+Retrieval-Augmented Generation, Multi-Turn Conversation, Query Rewriting,
+Reciprocal Rank Fusion, Agentic Generation, Answerability Detection,
+Large Language Models, Information Retrieval, SemEval-2026.

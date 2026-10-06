@@ -1,0 +1,94 @@
+\def\linkToHome{packages/}
+\RequirePackage{alphabeta}
+\RequirePackage[greek,english]{babel}
+
+\RequirePackage[
+ margin=2.5cm, 
+ bmargin=2cm, 
+]{geometry}
+
+\RequirePackage[utf8]{inputenc}
+\RequirePackage{afterpage}
+\RequirePackage{datetime}
+\RequirePackage[LGR,T1]{fontenc}
+\RequirePackage{amsmath} % Equations
+\RequirePackage{amssymb} % Equations
+\RequirePackage{amsthm}
+\RequirePackage{upquote} % Upright quotes for verbatim code
+\RequirePackage{pifont} % \ding{} dingbat symbols (checkmarks/crosses in figures)
+% \RequirePackage{pgfmath}
+\RequirePackage{standalone}
+\RequirePackage{float}
+\RequirePackage[normalem]{ulem}
+\RequirePackage{subcaption}
+\RequirePackage{mathtools}
+\RequirePackage{csquotes}
+\RequirePackage{pdfpages}
+\RequirePackage{booktabs}
+\RequirePackage{optidef}
+\RequirePackage{mwe}
+\RequirePackage[justification=centering]{caption}
+\RequirePackage{fancyhdr}
+\RequirePackage{bbm}
+\RequirePackage{dsfont}
+\RequirePackage[]{parskip}
+% \RequirePackage{bookmark}
+
+\RequirePackage{multirow}
+\RequirePackage{booktabs}
+\RequirePackage{colortbl}
+\RequirePackage{xcolor}
+
+\RequirePackage{minitoc}
+\RequirePackage{multicol}
+
+\RequirePackage[pdfencoding=unicode]{hyperref}
+\hypersetup{
+   colorlinks,
+   citecolor = blue,
+   filecolor = black,
+   linkcolor = blue,
+   urlcolor = blue
+}
+
+\RequirePackage{bookmark}
+
+% ======================================================
+\RequirePackage[linesnumbered,ruled,vlined,]{algorithm2e}
+\newcommand\mycommfont[1]{\footnotesize\ttfamily\textcolor{blue}{#1}}
+\SetCommentSty{mycommfont}
+\SetKwComment{Comment}{$\triangleright$\ }{}
+% ======================================================
+
+\numberwithin{equation}{section}
+
+
+% ======================================================
+% 
+%	CUSTOM STYLES
+%
+% ======================================================
+\RequirePackage{\linkToHome environments}
+% \RequirePackage{\linkToHome commands}
+\RequirePackage{\linkToHome math-commands}
+
+
+
+% \addto\captionsenglish{% Replace "english" with the language you use
+% 	\renewcommand{\contentsname}{Περιεχόμενα}%
+% 	\renewcommand{\figurename}{Σχήμα}
+% 	\renewcommand{\tablename}{Πίνακας}
+% 	\renewcommand{\listfigurename}{Λίστα Σχημάτων}%
+% 	\renewcommand{\listtablename}{Κατάλογος Πινάκων}
+% 	\renewcommand{\appendixname}{Παράρτημα}
+% 	\renewcommand{\refname}{Βιβλιογραφία}%
+% 	\renewcommand{\mtctitle}{mm}
+% }
+
+
+\counterwithin{figure}{section}
+\makeatletter
+% \renewcommand{\@chapapp}{Κεφάλαιο}
+\renewcommand{\footrulewidth}{0.4pt}
+\setlength{\footskip}{20pt}
+\makeatother

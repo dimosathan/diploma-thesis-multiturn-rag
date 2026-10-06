@@ -1,0 +1,160 @@
+\chapter{Background and Related Work}
+\label{chapter:background}
+
+This chapter establishes the theoretical and empirical foundation upon which the AILS-NTUA system is built. We proceed in four stages. Section~\ref{sec:ir-paradigms} surveys the dominant paradigms of information retrieval and situates learned sparse representations---the retrieval backbone adopted in this thesis---relative to lexical and dense alternatives. Section~\ref{sec:rank-aggregation} formalizes unsupervised rank aggregation via Reciprocal Rank Fusion and develops the mathematical extension toward a hierarchical fusion scheme. Section~\ref{sec:multiturn} characterizes the structural failure modes specific to multi-turn conversational search, situating them within the broader conversational-QA literature. Section~\ref{sec:agentic} reviews agentic generation pipelines and LLM-as-a-judge evaluation paradigms, which underpin the deferred-commitment generation strategy of Chapter~5. Section~\ref{sec:related-work} closes with a synthetic positioning of this thesis relative to prior work.
+
+%==============================================================
+\section{Information Retrieval Paradigms and Neural Representation}
+\label{sec:ir-paradigms}
+%==============================================================
+
+Information Retrieval (IR) forms the structural foundation of any retrieval-augmented pipeline. The core objective of an IR system is to map a user information need, formulated as a query $q$, to a subset of relevant documents extracted from a massive, static knowledge repository $\mathcal{D} = \{d_1, d_2, \dots, d_{|\mathcal{D}|}\}$. Over the past decades, this paradigm has evolved from exact lexical matching, through continuous dense vector spaces, to hybrid \textit{learned sparse} representations that attempt to reconcile the strengths of both extremes---a progression that directly motivates the retriever choice made in this thesis.
+
+\subsection{Lexical and Probabilistic Retrieval: The BM25 Framework}
+
+The classical paradigm of information retrieval is built upon sparse lexical matching, where documents and queries are represented as high-dimensional, orthogonal vectors indexed by the vocabulary of the corpus. The most prominent model within this framework is Best Matching 25 (BM25)~\citep{robertson2009probabilistic}, a non-linear combination of term frequency, inverse document frequency, and document-length normalization. Formally, given a query $q$ containing terms $t \in q$, the BM25 relevance score for a document $d$ is defined as:
+\begin{equation}
+\text{Score}_{\text{BM25}}(d, q) = \sum_{t \in q} \text{IDF}(t) \cdot \frac{f(t,d) \cdot (k_1+1)}{f(t,d) + k_1 \cdot \left(1 - b + b \cdot \frac{|d|}{\text{avgdl}}\right)}
+\end{equation}
+where $f(t,d)$ is the raw term frequency of $t$ within $d$, $|d|$ is the document length in tokens, and $\text{avgdl}$ is the average document length across $\mathcal{D}$. The hyperparameter $k_1 \in [1.2, 2.0]$ controls term-frequency saturation, while $b \in [0, 1]$ (typically $b{=}0.75$) governs the severity of the length-normalization penalty. The inverse document frequency term rewards rare, discriminative terms:
+\begin{equation}
+\text{IDF}(t) = \ln\left(1 + \frac{|\mathcal{D}| - n(t) + 0.5}{n(t) + 0.5}\right)
+\end{equation}
+where $n(t)$ is the number of documents containing $t$. BM25 offers exceptional precision for exact technical identifiers, serial numbers, and acronyms, but is fundamentally bounded by the \textit{vocabulary mismatch problem}: if a query paraphrases the target content using synonyms or morphologically distinct variants, the lexical intersection $q \cap d$ collapses toward zero and the document is missed entirely---regardless of its true semantic relevance. As we quantify empirically in Chapter~6 (Table~\ref{tab:retriever-comparison-en}), this weakness is amplified in the multi-turn setting, where later-turn queries are short and elliptical almost by construction.
+
+\subsection{Dense Retrieval and Contrastive Embedding Vector Spaces}
+
+To transcend the lexical boundaries of exact term matching, dense neural retrieval projects both queries and documents into a low-dimensional, continuous vector space $\mathbb{R}^d$ (typically $d \in [768, 1536]$). This approach employs a bi-encoder (dual-encoder) architecture~\citep{karpukhin2020dense} in which a query encoder $E_Q(\cdot)$ and a document encoder $E_D(\cdot)$ map text sequences independently into dense embeddings; relevance is then computed as inner product or cosine similarity:
+\begin{equation}
+S_{\text{dense}}(q,d) = \text{Sim}\big(E_Q(q), E_D(d)\big) = \frac{\langle E_Q(q), E_D(d)\rangle}{\|E_Q(q)\|_2 \cdot \|E_D(d)\|_2}
+\end{equation}
+Dense encoders are trained via contrastive learning objectives that minimize an InfoNCE-style loss. Given a training triplet consisting of a query $q$, a positive document $d^+$, and a set of negative documents $\{d_1^-, \dots, d_n^-\}$:
+\begin{equation}
+\mathcal{L}_{\text{contrastive}} = -\log \frac{\exp\big(\text{Sim}(E_Q(q), E_D(d^+))/T\big)}{\exp\big(\text{Sim}(E_Q(q), E_D(d^+))/T\big) + \sum_{i=1}^{n} \exp\big(\text{Sim}(E_Q(q), E_D(d_i^-))/T\big)}
+\end{equation}
+where $T$ is a temperature hyperparameter that governs the penalization of hard negatives. Dense retrieval excels at matching abstract semantic concepts and cross-lingual paraphrases, but---as documented broadly in recent RAG surveys \citep{gao2024retrievalaugmented}---frequently introduces semantic noise in domain-specific or multi-turn settings, over-generalizing technical tokens and misrouting alphanumeric identifiers that BM25-style matching would have captured trivially. This trade-off between semantic generalization and lexical precision is precisely what motivates the third retrieval paradigm.
+
+\subsection{Learned Sparse Representations and Vocabulary Expansion}
+
+Learned Sparse Retrieval has emerged as a powerful intermediate paradigm designed to unify the structural advantages of lexical precision and semantic generalization (e.g., SPLADE~\citep{formal2021splade}, ELSER~\citep{elastic2024elser}). Rather than compressing an entire sequence into a low-dimensional dense embedding, learned sparse encoders use a masked-language-modeling head to project text onto the full vocabulary space of the model, $\mathcal{V} = \mathbb{R}^{|\mathcal{V}|}$ (where $|\mathcal{V}| \approx 30{,}522$ for typical WordPiece vocabularies).
+
+Formally, given a document $d$, the learned sparse encoder outputs a high-dimensional, sparse vector $w_d$, where the weight $w_d(t)$ for each token $t \in \mathcal{V}$ is computed by predicting its semantic importance:
+\begin{equation}
+w_d(t) = \ln\big(1 + \max(0, W_t \cdot h_i + b_t)\big)
+\end{equation}
+where $h_i$ is the contextualized hidden state of token $i$ produced by the Transformer layers, and $W_t, b_t$ are the parameters of a linear projection head associated with vocabulary token $t$. This mechanism enables \textit{term expansion}: the encoder populates the document vector with non-zero weights for semantically related terms and synonyms that were never present in the raw string, thereby directly resolving the vocabulary mismatch problem without abandoning the interpretability and exact-match precision of a sparse representation. The final relevance score reduces to an efficient sparse dot product over the shared vocabulary support:
+\begin{equation}
+S_{\text{learned\_sparse}}(q,d) = \sum_{t \in q \cap d} w_q(t) \cdot w_d(t)
+\end{equation}
+This thesis adopts \textbf{ELSER v1} as its corpus-aligned sparse base retriever, capitalizing on its balanced handling of alphanumeric constraints (error codes, financial tickers, product identifiers) alongside cross-turn paraphrase resolution---an empirical justification developed in detail in Chapter~6.
+
+\subsection{Hypothetical Document Embeddings: Bridging the Query--Passage Gap}
+
+A structurally distinct approach to closing the vocabulary gap operates not on the document side but on the \textit{query} side. \textbf{Hypothetical Document Embeddings (HyDE)} \citep{gao2023precise} reformulate the retrieval problem by having an LLM first generate a plausible, zero-shot hypothetical answer to the query, and then using that generated passage---rather than the original query---as the retrieval signal. The underlying intuition is that a hypothetical answer, even if factually imperfect, is lexically and structurally much closer to the target passages in the corpus than a short, often elliptical, user question. This effectively reframes retrieval as a passage-to-passage matching problem rather than a query-to-passage one, at the cost of introducing generation-time variance: because the hypothetical passage is itself sampled from the LLM's parametric knowledge, its quality and topical fidelity can fluctuate from one invocation to the next. A closely related approach, Query2doc~\citep{wang2023query2doc}, appends an LLM-generated pseudo-document to the original query instead of replacing it. The expected variability of such generated signals motivates the hierarchical fusion design discussed in Section~\ref{sec:rank-aggregation}; empirically, HyDE is the weakest single reformulation strategy in our development experiments (Section~\ref{sec:taskA-ablations}), while still contributing within the fusion.
+
+%==============================================================
+\section{Unsupervised Rank Aggregation and Rank Decay Theory}
+\label{sec:rank-aggregation}
+%==============================================================
+
+In complex RAG pipelines where multiple independent rankings are surfaced---whether through multi-retriever ensembling or multi-query reformulation---an unsupervised rank aggregation algorithm is required to combine these permutations into a single, robust output list without access to ground-truth relevance labels at inference time.
+
+\subsection{Reciprocal Rank Fusion (RRF)}
+
+Reciprocal Rank Fusion (RRF)~\citep{cormack2009reciprocal} operates as a non-parametric rank aggregation standard. Unlike score-based fusion strategies, which require careful calibration to normalize heterogeneous score scales across retrieval models, RRF relies strictly on the \textit{relative order} of items within each list, making it immune to scale mismatches between, e.g., BM25 scores and cosine similarities. Given a set of individual query-result permutations $\mathcal{M}$, the aggregate RRF score for a document $d \in \mathcal{D}$ is defined as:
+\begin{equation}
+\text{RRF\_Score}(d \in \mathcal{D}) = \sum_{m \in \mathcal{M}} \frac{1}{k + r_m(d)}
+\end{equation}
+where $r_m(d)$ denotes the rank of document $d$ within the $m$-th permutation list, and $k \in \mathbb{N}$ is a constant smoothing hyperparameter, typically optimized around $k{=}60$ in practice. The mathematical intuition behind RRF lies in its penalization of high-rank volatility: documents that achieve a consistently high rank across multiple independent strategies are disproportionately rewarded, while the influence of documents that appear only near the tail of individual lists decays smoothly rather than being discarded outright. This property makes RRF particularly attractive in our setting, where the five query reformulation strategies of Chapter~5 are expected to agree strongly on some documents while disagreeing substantially on others.
+
+\subsection{Weighted and Nested Rank Aggregation Foundations}
+
+To accommodate scenarios where individual ranking strategies exhibit asymmetric reliability, the standard RRF formulation generalizes naturally into a \textit{Weighted RRF}. Let $w_m$ denote the static weight allocated to the $m$-th ranking strategy, estimated from empirical precision on a validation set:
+\begin{equation}
+\text{WRRF\_Score}(d \in \mathcal{D}) = \sum_{m \in \mathcal{M}} \frac{w_m}{k + r_m(d)}, \quad \text{subject to } \sum_{m \in \mathcal{M}} w_m = 1
+\end{equation}
+Flat weighting, however, is insufficient when the reliability gap between strategies is not merely a matter of average precision but of \textit{variance}: a strategy such as HyDE (Section~3.1.4) may perform excellently on some turns and poorly on others, depending on whether the LLM's hypothetical passage happens to align with the true topical content. Assigning it a fixed, average-case weight either under-exploits its good turns or over-exposes the fusion to its bad ones. This consideration motivates a hierarchical variant, termed \textbf{Nested RRF}, developed as a core technical contribution of this thesis. Let $\mathcal{M}_{\text{high}}$ denote the subset of exploratory rankings, expected to be more volatile (HyDE, Chain-of-Thought, Anchor-Keyword), and $\mathcal{M}_{\text{stable}}$ the subset of conservative rankings (Minimal, Corpus-Specific). A flat, peer-to-peer fusion of all five strategies would allow a single noisy reformulation to contaminate top-$k$ slots on turns where it happens to fail. The Nested RRF framework instead constructs a two-level hierarchical aggregation tree. At \textbf{Level 1}, the noisy paths are pre-aggregated into a single intermediate consensus ranking, $\mathcal{R}_{\text{consensus}}$:
+\begin{equation}
+\text{Score}_{\text{Level 1}}(d) = \sum_{m \in \mathcal{M}_{\text{high}}} \frac{1}{k_{\text{internal}} + r_m(d)} \;\longrightarrow\; \text{Sort} \;\longrightarrow\; \mathcal{R}_{\text{consensus}}(d)
+\end{equation}
+At \textbf{Level 2}, the final ranking is compiled by fusing the consensus ranking with the two conservative rankings, under domain-specific corpus weights $w_s^{(c)}$ tuned per topical field $c$:
+\begin{equation}
+\text{Score}_{\text{final}}(d) = \frac{w_{\text{consensus}}}{k_{\text{final}} + r_{\text{consensus}}(d)} + \sum_{s \in \mathcal{M}_{\text{stable}}} \frac{w_s}{k_{\text{final}} + r_s(d)}
+\end{equation}
+Intuitively, this construction makes the exploratory group contribute a \textit{single} vote to the final fusion---rather than one vote per strategy---so that its fluctuations are smoothed before it competes with the conservative reformulations. The construction is part of the multi-strategy retrieval pipeline of Chapter~5; Section~\ref{sec:taskA-ablations} evaluates the complete configuration, although a direct comparison with flat RRF over the same inputs was not retained.
+
+%==============================================================
+\section{Multi-Turn Dialogic Modeling and Structural Failure Cascades}
+\label{sec:multiturn}
+%==============================================================
+
+The transposition of RAG frameworks from single-turn transactions into multi-turn dialogue configurations fundamentally changes the mathematical properties of the context window available to the system. In a single-turn scenario, the query is standalone and complete. In a sequential conversation, the user utterance $u_t$ at turn $t$ is generally \textit{non-standalone}, drawing essential structural information from the historical trace $H_t = \{(u_i, a_i)\}_{i=1}^{t-1}$.
+
+\subsection{Conversational Dependencies: Anaphora, Ellipsis, and Topic Drift}
+
+Conversational interaction is governed by principles of linguistic economy that are largely absent from written, single-turn queries, giving rise to three primary categories of context dependency:
+\begin{itemize}
+    \item \textbf{Pronoun Coreference Resolution:} the occurrence of anaphoric tokens (e.g., ``its pricing'', ``how much did they fine them?'') whose semantic referent is bound to an entity established several turns earlier in the dialogue.
+    \item \textbf{Syntactic Ellipsis:} the omission of complete predicates or structural components that are implicitly carried forward by the discourse state (e.g., Turn $t{-}1$: \textit{``What is the capital of France?''}, Turn $t$: \textit{``And Germany?''}).
+    \item \textbf{Topic Caching and Drift:} conversational shifts in which the user introduces a new intent or re-activates a historical thread, requiring the system to dynamically distinguish live conversational context from stale, superseded information.
+\end{itemize}
+As quantified in our system description paper~\citep{athanasiou2026ailsntua} and reproduced in Section~\ref{sec:nonstandalone-phenomena} of this thesis, pronoun coreference alone is present in $97\%$ of non-first turns in the MTRAG development set, making it by a wide margin the dominant source of query underspecification---far ahead of comparative follow-ups ($67\%$) and temporal dependence ($18\%$).
+
+\subsection{The Error Cascade Phenomenon}
+
+A widely discussed failure mode of multi-turn RAG systems is the \textit{error cascade}. In an end-to-end multi-turn loop, the context window supplied to the retrieval module at turn $t$ is parameterized by the history $H_t$, which encodes the generated outputs of \textit{all} prior turns. If the retrieval module $\mathcal{R}$ experiences a failure or admits irrelevant distractors at turn $t{-}1$, the downstream generator $\mathcal{G}$ necessarily receives a corrupted context prompt, and consequently produces an ungrounded or partially incorrect response $y_{t-1}$. Because $y_{t-1}$ is deterministically appended to the history window, the incoming context for turn $t$ is contaminated before the retrieval module even begins its work: the query reformulation engine at turn $t$ processes this already-corrupted trace, leading to context drift and a further retrieval failure. This progressive degradation highlights that retrieval stability \textit{across} dialogue turns, and not merely within a single turn, is a central requirement for reliable conversational RAG. The cascade presupposes that the history contains the system's own earlier outputs, as it does in deployed assistants. The MTRAGEval benchmark used in this thesis instead supplies the \emph{reference} history at every turn, so a system error cannot propagate into later turns; our evaluation therefore does not exercise this mechanism (Section~\ref{sec:error-analysis}).
+
+\subsection{Conversational Search: Rewriting, Robustness, and Benchmark Design}
+
+The challenge of context-dependent retrieval has a substantial prior literature outside the RAG framework proper, under the umbrella of \textit{conversational search}. Early formalizations of the task, such as the TREC Conversational Assistance Track (CAsT) \citep{dalton2020trec}, established multi-turn retrieval as a distinct evaluation setting with its own passage collections and relevance judgments. The dominant early approach to handling non-standalone queries was learned \textit{query rewriting}: training sequence-to-sequence models to transform a context-dependent utterance into an independent, standalone query prior to retrieval \citep{vakulenko2021question, anantha2021open}. Alternative lines of work learn conversational query encoders directly, as in ConvDR~\citep{yu2021convdr}, or prompt large language models to produce several rewrites and pseudo-responses that are aggregated into a single search intent, as in LLM4CS~\citep{mao2023llm4cs}---the latter being the closest prior work to the multi-strategy rewriting of this thesis. While effective on relatively stable conversational trajectories, Adlakha et al.\ \citep{adlakha2022topiocqa} demonstrated with the TopiOCQA benchmark that such rewriters degrade sharply under sudden topic switching and context drift, precisely the failure mode described above---a fragility that directly motivated the development of fine-grained, self-checking mechanisms tailored to conversational QA \citep{ye2024boosting} and, more recently, evaluation frameworks explicitly designed around retrieval-augmented multi-turn dialogue, such as TREC iKAT \citep{aliannejadi2024trec} and RAD-Bench \citep{kuo2025radbench}. The MTRAG benchmark adopted in this thesis \citep{katsis2025mtrag} extends this line of work by combining non-standalone queries with explicit unanswerability labels and heterogeneous, realistic domains (encyclopedic, financial, governmental, technical), rather than relying on a single homogeneous corpus---a design choice that is precisely what surfaces the domain-dependent retrieval behavior analyzed in Chapter~6.
+
+%==============================================================
+\section{Agentic Generative Pipelines and Multi-Judge Systems}
+\label{sec:agentic}
+%==============================================================
+
+To shield the language generator from the structural vulnerabilities of raw, unfiltered document inputs, state-of-the-art architectures increasingly transition toward multi-stage \textit{agentic} frameworks. These structures segment a monolithic generation task into discrete, granular sub-problems, each optimized through a targeted persona definition, and defer final commitment to the answer until multiple independent signals agree.
+
+\subsection{Context Bottlenecks via Evidence Span Extraction}
+
+Naively passing long retrieved documents (e.g., multiple 512-token text blocks) directly into an LLM generator introduces the well-documented \textit{lost-in-the-middle} phenomenon~\citep{liu2024lost}, in which models systematically under-attend to evidence located away from the beginning or end of an extended context window. To enforce rigorous factual anchoring, modern pipelines introduce an intermediate stage termed \textit{Verbatim Evidence Span Extraction}: an extraction module analyzes the retrieved documents $\mathcal{D}_t$ and outputs a filtered set of exact sentence strings $\mathcal{S}_t = \{s_1, s_2, \dots, s_m\}$ that directly support the query. The downstream generator is then strictly conditioned on $\mathcal{S}_t$ rather than the full documents, creating a tight context bottleneck that substantially reduces the opportunity for parametric hallucination. This principle is closely related to, and partly inspired by, work on teaching language models to support their answers with verified quotes drawn directly from source material \citep{menick2022teaching}, which similarly argues that constraining a generator's output to be traceable to exact source spans is a more robust grounding mechanism than post-hoc citation or free-form paraphrase.
+
+\subsection{The LLM-as-a-Judge Evaluation and Selection Paradigm}
+
+The validation and selection of generated responses within complex agentic pipelines is increasingly managed through the \textit{LLM-as-a-Judge} framework \citep{zheng2023judging}, originally proposed as a scalable substitute for human preference annotation in open-ended chatbot evaluation (MT-Bench, Chatbot Arena). Rather than committing to a single greedy generation pass, agentic pipelines instead adopt a strategy of \textit{deferred commitment}: multiple diverse response candidates are generated simultaneously---for instance, balancing deterministic factual transmission against stochastic natural fluency---and are then cross-evaluated by an ensemble of orthogonal, persona-conditioned judge prompts. Each judge persona scores the candidates along a specific operational axis (e.g., technical faithfulness to the extracted evidence spans, or user-facing conversational adequacy), and the resulting scores are synthesized into a composite selection criterion that delays final text commitment until an acceptable consensus is reached. This general paradigm underlies the multi-judge selection scheme developed in Section~5.3 of this thesis, extended here to explicitly penalize both hallucination-prone under-extraction and mechanically verbatim over-extraction via the extractiveness shaping function of Section~\ref{sec:generation-pipeline} (Equation~\eqref{eq:extractiveness-shaping}).
+
+\subsection{Retrieval-Augmented Generation Beyond Single-Pass Fusion}
+
+The agentic pipelines discussed above are best understood as a natural extension of a broader trajectory in RAG research away from single-pass, static retrieve-then-generate architectures. Fusion-in-Decoder (FiD) \citep{izacard2021leveraging} first demonstrated that encoding multiple retrieved passages independently and fusing their representations only within the decoder substantially improves the integration of dispersed evidence, relative to naively concatenating all passages into a single prompt. Subsequent work on Atlas \citep{izacard2023atlas} extended this architecture toward continuous joint training of the retriever and generator, improving few-shot performance on knowledge-intensive tasks. A parallel line of research has explored making the retrieval decision itself dynamic and generation-aware, rather than a single upfront step: Self-RAG \citep{asai2024selfrag} trains a model to self-reflect on whether retrieval is needed at all and to critique its own generated output against retrieved evidence, while active retrieval augmented generation \citep{jiang2023active} triggers additional retrieval calls mid-generation whenever the model's own confidence signals suggest that further evidence is required. Corrective RAG (CRAG)~\citep{yan2024crag} adds a lightweight retrieval evaluator that grades the retrieved documents and triggers corrective actions when they are judged insufficient---an idea closely related to the answerability gate of this thesis. REPLUG \citep{shi2024replug} takes a complementary, black-box-compatible approach, treating the language model itself as a frozen component and tuning only the retriever to better serve a fixed, non-differentiable generator---a design constraint that closely mirrors the proprietary-API setting of this thesis (Chapter~5), where the underlying LLMs cannot be fine-tuned and all architectural gains must instead be realized through prompting, orchestration, and evidence-filtering design.
+
+%==============================================================
+\section{Related Work}
+\label{sec:related-work}
+%==============================================================
+
+The formalization of Retrieval-Augmented Generation was established by Lewis et al.\ \citep{lewis2020retrieval}, who demonstrated that conditioning language model generation on explicit, non-parametric retrieved documents substantially reduces hallucination on knowledge-intensive tasks relative to purely parametric generation. This foundational architecture was subsequently extended along several complementary axes reviewed in Section~\ref{sec:agentic}: multi-passage integration via Fusion-in-Decoder \citep{izacard2021leveraging}, continuous joint retriever--generator training \citep{izacard2023atlas}, self-reflective and actively triggered retrieval \citep{asai2024selfrag, jiang2023active}, and black-box-compatible retriever tuning \citep{shi2024replug}. More broadly, recent surveys of the RAG literature \citep{gao2024retrievalaugmented} document the rapid diversification of this design space across retrieval strategies, augmentation points, and generation-time integration mechanisms.
+
+In parallel, conversational search research has long targeted the specific problem of context-dependent multi-turn query resolution \citep{dalton2020trec}. Early approaches relied heavily on sequence-to-sequence models trained to rewrite conversational inputs into independent, standalone queries \citep{vakulenko2021question, anantha2021open}. However, Adlakha et al.\ \citep{adlakha2022topiocqa} exposed the fragility of these sequence-based rewriters under sudden topic switching and severe context drift, a failure mode that directly motivated the development of fine-grained self-checking mechanisms tailored explicitly to conversational QA environments \citep{ye2024boosting}, and, at the benchmark-design level, retrieval-augmented conversational assistants evaluated under realistic multi-turn constraints \citep{aliannejadi2024trec, kuo2025radbench}.
+
+The problem of \textit{unanswerability} has a long history in question answering, from benchmarks that include questions without an answer in the given context, such as SQuAD~2.0~\citep{rajpurkar2018squad2}, to selective question answering, in which a model abstains when its confidence is low, a setting known to be fragile under domain shift~\citep{kamath2020selective}. Whether language models can estimate their own confidence reliably is itself an open question~\citep{kadavath2022language}, and recent work on RAG systems distinguishes explicitly between relevant and \emph{sufficient} context~\citep{joren2025sufficient}. In information-seeking dialogue, unanswerability is a central challenge for faithful responses \citep{dziri2022faithdial}: systems must trade off answering against abstaining when the retrieved context may not justify an answer. Automated RAG evaluation frameworks such as RAGAS \citep{es2024ragas}, ARES~\citep{saadfalcon2024ares}, and RAGChecker~\citep{ru2024ragchecker} assess this grounding automatically; RAGAS-style faithfulness is the reference-less component of our evaluation metric (Section~\ref{sec:eval-methodology}). To probe these compounding conversational failure modes across genuinely heterogeneous domains, Katsis et al.\ \citep{katsis2025mtrag} introduced the MTRAG conversational benchmark. Unlike traditional single-turn or single-domain datasets, MTRAG features factoid, comparative, and explicitly unanswerable questions configured within realistic multi-turn histories spanning encyclopedic, financial, governmental, and technical-support content, serving as the core experimental bed for validating the retrieval-stability and agentic-commitment design principles presented throughout this thesis, and for the SemEval-2026 Task~8 shared task in which this system was evaluated \citep{rosenthal2026semeval}.
+
+Table~\ref{tab:related-work-summary} summarizes the positioning of this thesis relative to the strands of prior work reviewed above, and the specific structural gap that each line of work leaves open in the multi-turn RAG setting.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.1cm}p{4.3cm}p{5.5cm}}
+\toprule
+\textbf{Prior Work} & \textbf{Core Contribution} & \textbf{Gap Addressed by AILS-NTUA} \\
+\midrule
+Lewis et al.\ \citep{lewis2020retrieval}; Izacard \& Grave \citep{izacard2021leveraging} & Single-turn RAG; multi-passage fusion & Extended to explicitly non-standalone, multi-turn queries \\
+Vakulenko et al.\ \citep{vakulenko2021question}; Anantha et al.\ \citep{anantha2021open} & Sequence-to-sequence query rewriting to standalone form & Replaced with five complementary, failure-mode-targeted LLM reformulations, fused rather than committed to a single rewrite \\
+Adlakha et al.\ \citep{adlakha2022topiocqa} & Documents rewriter fragility under topic drift & Nested RRF is designed to limit the influence of high-variance reformulations instead of relying on a single rewrite \\
+Asai et al.\ \citep{asai2024selfrag}; Jiang et al.\ \citep{jiang2023active} & Dynamic, self-triggered retrieval within generation & Retrieval decoupled from generation entirely (Task A/B separation); dynamic behavior instead concentrated in the answerability gate \\
+Dziri et al.\ \citep{dziri2022faithdial} & Faithfulness benchmark for unanswerable dialogue & Multi-layer, confidence-weighted answerability gate operating over documents, spans, and answers jointly \\
+Katsis et al.\ \citep{katsis2025mtrag} & MTRAG benchmark: multi-turn, multi-domain, explicit unanswerability & This thesis: unified system evaluated across all three MTRAGEval subtasks under this benchmark \\
+\bottomrule
+\end{tabular}
+\caption{Positioning of the AILS-NTUA system relative to representative prior work discussed in this chapter.}
+\label{tab:related-work-summary}
+\end{table}

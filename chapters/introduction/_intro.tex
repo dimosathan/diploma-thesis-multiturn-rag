@@ -1,0 +1,73 @@
+\renewcommand{\chaptername}{Chapter}\renewcommand{\tablename}{Table}
+\renewcommand{\figurename}{Figure}
+\chapter{Introduction}
+\label{chapter:introduction}
+
+%==============================================================
+\section{Motivation}
+\label{sec:intro-motivation}
+%==============================================================
+
+Large Language Models (LLMs) have emerged as a foundational paradigm in Natural Language Processing, demonstrating strong capabilities in coherent text generation, in-context learning, and multi-step reasoning through chain-of-thought prompting. These abilities arise from autoregressive pretraining on massive text corpora, without requiring task-specific supervision at inference time. Despite this representational power, LLMs remain fundamentally constrained by the static nature of their parametric knowledge: information is crystallized at pretraining time, and updating it requires computationally expensive retraining or fine-tuning procedures. Equally important, LLM outputs lack an intrinsic mechanism for traceability---the model cannot point to the specific evidence that grounds a given claim---which frequently manifests as \textit{hallucinations}: fluent, syntactically well-formed text that is nonetheless factually unsupported. This limitation is particularly consequential in knowledge-intensive applications where factual reliability is a hard requirement.
+
+Retrieval-Augmented Generation (RAG) addresses both limitations by coupling the parametric memory of an LLM with a non-parametric, externally maintained knowledge source, dynamically consulted at inference time \citep{lewis2020retrieval}. A RAG system conditions generation on passages retrieved from an external corpus, which improves factual accuracy, enables adaptation to evolving information without retraining, and supports source attribution. Subsequent work extended this paradigm through multi-passage fusion architectures \citep{izacard2021leveraging}, joint retriever-generator training \citep{izacard2023atlas}, and self-reflective generation mechanisms that actively decide when and what to retrieve \citep{asai2024selfrag}. RAG has since become an established approach for knowledge-intensive NLP tasks, underpinning practical deployments ranging from enterprise document search and technical support automation to open-domain question answering assistants---settings in which an ungrounded hallucination is not merely an academic evaluation failure but a concrete source of user harm or business risk.
+
+The overwhelming majority of this literature, however, treats retrieval as a \textit{single-turn} problem: each query is assumed to be self-contained, evaluated in isolation from any surrounding dialogue. This assumption is at odds with realistic deployment settings, which are inherently conversational. Virtually every production use case named above---a customer asking follow-up questions about a cloud service, an analyst probing a financial document across several exchanges, a citizen navigating a government procedure through successive clarifications---unfolds as a multi-turn dialogue, not a sequence of independent lookups. Studying multi-turn RAG is therefore not a niche extension of the single-turn setting; it is closer to the setting that most real deployments actually face.
+
+%==============================================================
+\section{The Multi-Turn RAG Problem}
+\label{sec:intro-problem}
+%==============================================================
+
+In a multi-turn interaction, successive user utterances exhibit strong contextual dependencies---anaphoric references without an explicit antecedent, syntactic ellipsis that omits information carried over from prior turns, and abrupt topic shifts within the same session. Table~\ref{tab:intro-example} reproduces a representative example from the MTRAG benchmark \citep{katsis2025mtrag} that illustrates the failure mode directly: the query \textit{``How much does it cost?''}, taken in isolation, contains no retrievable entity at all. Only by resolving \textit{it} against an entity introduced three turns earlier in the conversation (IBM Cloud Object Storage) does the query become answerable. A retriever that treats this turn as a standalone lookup---as single-turn RAG systems are designed to do---receives an uninformative signal and returns topically plausible but ultimately irrelevant passages.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{2.6cm}p{4.6cm}p{6.2cm}}
+\toprule
+\textbf{Turn type} & \textbf{User query (verbatim)} & \textbf{Underlying challenge} \\
+\midrule
+Follow-up (coreference) & ``How much does it cost?'' --- \textit{it} refers to IBM Cloud Object Storage, introduced 3 turns prior & Non-standalone query; the retriever sees no resolvable entity without history-aware rewriting \\
+Unanswerable (temporal) & ``Where do the Cardinals play this week?'' --- corpus contains only a 2017 schedule & Topically relevant but temporally mismatched evidence; high risk of confident hallucination \\
+Partial (incomplete) & ``Is it worth having a web chat widget?'' --- corpus describes features, not subjective value & Retrieved evidence supports description but not the evaluative judgment the user is asking for \\
+\bottomrule
+\end{tabular}
+\caption{Representative multi-turn RAG failure modes from the MTRAG benchmark \citep{katsis2025mtrag}, reproduced in condensed form. Each row illustrates a distinct structural challenge addressed by this thesis: non-standalone queries (Section~\ref{sec:retrieval-pipeline}), unanswerability under topical-but-irrelevant evidence (Section~\ref{sec:e2e-system}), and partial evidence coverage (Section~\ref{sec:generation-pipeline}).}
+\label{tab:intro-example}
+\end{table}
+
+When a system fails to resolve such dependencies, the resulting non-standalone query causes \textit{context drift} in the retrieval stage: the retriever receives an underspecified signal and returns topically adjacent but ultimately irrelevant passages. Because the generator conditions on both the retrieved passages and the accumulated conversation history, a single retrieval failure at turn $t$ does not remain isolated---it contaminates the history window $H_{t+1}$ available at the next turn, giving rise to an \textit{error cascade} that compounds across the dialogue whenever the history contains the system's own earlier answers, as in a deployed assistant (MTRAGEval itself supplies the reference history; Section~\ref{sec:error-analysis}). Prior work on conversational search has largely approached this problem through learned query rewriting into standalone form \citep{vakulenko2021question, anantha2021open}, though such sequence-to-sequence rewriters have been shown to degrade under sudden topic switching \citep{adlakha2022topiocqa}. A second, closely related failure mode concerns \textit{unanswerability}, illustrated by the second row of Table~\ref{tab:intro-example}: the user's information need may simply not be covered by the available corpus, a scenario that faithful information-seeking dialogue systems must explicitly detect rather than answer regardless \citep{dziri2022faithdial}. As the third row shows, the boundary between answerable and unanswerable is itself often graded rather than binary---evidence may support part of a question while leaving its evaluative or comparative component unaddressed, a distinction that motivates the partial-answerability handling developed in Section~\ref{sec:generation-pipeline}.
+
+%==============================================================
+\section{Thesis Statement and Contributions}
+\label{sec:intro-contributions}
+%==============================================================
+
+Motivated by this gap, the present thesis investigates multi-turn conversational RAG within the framework of the international MTRAGEval competition, organized as SemEval-2026 Task 8 \citep{rosenthal2026semeval} on the MTRAG benchmark \citep{katsis2025mtrag}. The benchmark is explicitly designed to stress-test context-aware retrieval stability and answer-commitment behavior under non-standalone queries, spanning four heterogeneous domains (encyclopedic, financial, governmental, and technical-support content) and explicitly labeling turns as answerable, partially answerable, unanswerable, or conversational. We approach the problem as fundamentally one of \textit{retrieval stability}: small, seemingly innocuous errors in query reformulation, compounded with the vocabulary gap that naturally opens up between conversational turns, translate into a sharp degradation of retrieval quality after the first turn of the dialogue. We further observe that standard RAG configurations exhibit a systematic \textit{acceptance bias}---generators confidently answer unanswerable turns by falling back on parametric priors instead of verifying that the retrieved evidence actually justifies a response. We refer to this vulnerability as \textit{answerability miscalibration}, and study its interaction with retrieval architecture choices through a unified system built on two design principles: query diversity over retriever diversity, and deferred commitment in generation.
+
+Concretely, this thesis makes the following contributions:
+\begin{itemize}
+    \item \textbf{A stability-oriented, multi-strategy query rewriting engine} that issues five complementary, failure-mode-targeted LLM reformulations against a single corpus-aligned retriever, aggregated through a hierarchical Nested Reciprocal Rank Fusion algorithm (Section~\ref{sec:retrieval-pipeline}); on the development set, this configuration outperforms heterogeneous retriever ensembling under the benchmark's official relevance judgments (Section~\ref{sec:taskA-ablations}).
+    \item \textbf{An agentic, evidence-commitment generation pipeline} that decomposes grounded response synthesis into answerability triage, verbatim evidence span extraction, dual-candidate drafting, judge-based selection, and micro-adjustment (Section~\ref{sec:generation-pipeline}), improving both reference-less faithfulness and the overall Harmonic Mean on the development set (Section~\ref{sec:taskB-ablations}).
+    \item \textbf{A multi-layer answerability gate} for the end-to-end setting, combining document-, span-, and answer-level judges through confidence-weighted voting with dissenter override (Section~\ref{sec:e2e-system}).
+    \item \textbf{A systematic empirical characterization of multi-turn RAG failure modes} on the MTRAGEval benchmark, including the retriever ensemble paradox (Section~\ref{sec:taskA-ablations}), answerability calibration as the decisive end-to-end factor under distribution shift, alongside persistent top-rank retrieval errors (Section~\ref{sec:taskC-bottleneck}), and quantitative evidence that LLM-based reranking saturates once first-stage recall is already high (Section~\ref{sec:taskA-ablations}).
+\end{itemize}
+The resulting system, AILS-NTUA, ranked 1st of 38 on Task~A (passage retrieval) and 2nd of 26 on Task~B (reference-grounded generation) on the official SemEval-2026 Task~8 leaderboard, consistent with the two design principles above (Section~\ref{sec:leaderboard}).
+
+\paragraph{Relation to published work and personal contribution.}
+The system was developed within the AILS-NTUA team and published as a SemEval-2026 system description paper~\citep{athanasiou2026ailsntua}; this thesis builds on that paper and extends its analysis. The author designed and implemented the retrieval, generation, and answerability components, carried out all experiments and analyses, and wrote this thesis. M.~Lymperaiou and G.~Filandrianos provided research guidance and feedback, and A.~Voulodimos and G.~Stamou supervised the work.
+
+%==============================================================
+\section{Thesis Structure}
+\label{sec:intro-structure}
+%==============================================================
+
+The remainder of this thesis is organized as follows:
+\begin{itemize}
+    \item Provide theoretical background on Large Language Models and Information Retrieval frameworks, covering learned sparse representations (ELSER v1), dense neural embeddings, unsupervised rank aggregation via Reciprocal Rank Fusion (RRF), and multi-stage agentic verification paradigms (Chapter~3).
+    \item Formally define the multi-turn RAG problem under the three-subtask specification of MTRAGEval---passage retrieval, reference-grounded generation, and end-to-end RAG---derive the structural challenges (vocabulary gap, cross-turn dependency, context drift) that motivate our architectural choices, and state the four research questions and hypotheses that structure the empirical investigation (Chapter~4).
+    \item Detail the technical architecture of our AILS-NTUA system, presenting the design of the five-pronged query rewriting engine, the mathematical formulation of the hierarchical Nested RRF algorithm, and the multi-stage agentic generation pipeline featuring verbatim evidence span extraction and multi-judge answerability gating (Chapter~5).
+    \item Present comprehensive experimental results on the MTRAGEval benchmark, including ablation analyses of retrieval and generation components, an investigation of how conversational stability degrades across turn depth, and a quantitative account of the retriever ensemble paradox (Chapter~6).
+    \item Conclude by summarizing the key architectural insights of the study, characterizing the limits of answerability gates under the distribution shift between development and test conditions, and discussing directions for future work, including reinforcement learning over open-weight reasoning models (Chapter~7).
+\end{itemize}

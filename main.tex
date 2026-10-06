@@ -1,0 +1,85 @@
+\documentclass[greek, english, twoside]{book}
+
+\usepackage[none]{hyphenat}
+\usepackage{used-packages}
+\usepackage{packages/ntua-thesis-titlepages}
+\usepackage{lipsum}
+\usepackage{url}
+\usepackage{float}
+\usepackage{longtable}
+\usepackage{colortbl}
+\usepackage{tablefootnote}
+
+\definecolor{lightdustygreen}{rgb}{0.67, 0.82, 0.69}
+\definecolor{lightdustypink}{rgb}{0.87, 0.67, 0.70}
+\definecolor{lightdustypurple}{rgb}{0.80, 0.68, 0.83}
+\definecolor{dustygray}{rgb}{0.55, 0.55, 0.55}
+\definecolor{dustypurple}{rgb}{0.63, 0.50, 0.68}
+\definecolor{dustyblue}{rgb}{0.45, 0.65, 0.75}
+
+\fancyhead[LE]{\nouppercase\leftmark}% LE -> Left part on Even pages
+\fancyhead[RO]{\nouppercase\rightmark}% RO -> Right part on Odd pages
+\fancyhead[LO]{}% LE -> Left part on Even pages
+\fancyhead[RE]{}% RO -> Right part on Odd pages
+
+\usepackage[
+    backend=biber,
+    maxnames=10,
+    % style=alphabetic,
+    % sorting=nyt,
+    % uncomment these two lines and comment the above two if you want your references to be like [1], [2] etc
+    style=numeric, 
+    natbib=true,
+    sorting=nyt,
+    giveninits=true,
+]{biblatex}
+\DeclareNameAlias{author}{family-given}
+\addbibresource{references.bib}
+
+% for table coloring
+\newcommand{\g}{\cellcolor{green}}
+\newcommand{\bbmm}{\cellcolor{red!10}}
+\newcommand{\bb}{\cellcolor{red!40}}
+\setcounter{tocdepth}{3}
+\setcounter{secnumdepth}{3}
+\begin{document}
+    \sloppy
+    % \frontmatter
+    \pagestyle{empty}
+    \pagenumbering{arabic}
+    \maketitle
+    \input{chapters/0_before/_before.tex}
+    
+    % \mainmatter
+
+     %\selectlanguage{greek} 
+    \input{chapters/01_greek/_greek.tex}
+
+     %\selectlanguage{english} 
+    \input{chapters/introduction/_intro.tex}
+
+    
+ %   \input{chapters/background/_background}
+
+    % SemEval info
+ %   \input{chapters/7_1_Proposal/_proposal}
+    \input{chapters/background/02_background}
+    \input{chapters/problem_definition/03_problem_definition}
+    \input{chapters/system_architecture/04_system_architecture}
+    \input{chapters/experimental_evaluation/05_experimental_evaluation}
+    \input{chapters/conclusion/06_conclusion}
+    \input{chapters/bibliography/bibliography}
+
+   % \input{tables/refusal}
+    % Riscore info
+ %   \input{chapters/7_proposal/_proposal.tex}
+ %   \input{chapters/8_experiments/_experiments.tex}
+
+    % General Conclusion
+ %   \input{chapters/conclusion/conclusion}
+    
+    \clearpage
+
+    % \appendix
+
+\end{document}
